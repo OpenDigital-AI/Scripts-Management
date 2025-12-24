@@ -74,8 +74,8 @@ export default {
       userInfo.value = result;
       loading.value = false;
 
-      // If not logged in, redirect to login
-      if (!result.isLoggedIn) {
+      // If not logged in or error occurred, redirect to login
+      if (!result.success || !result.isLoggedIn) {
         router.push('/login');
       }
     };

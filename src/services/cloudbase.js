@@ -10,7 +10,7 @@ class CloudbaseService {
   init(config) {
     try {
       this.app = cloudbase.init({
-        env: config.env || process.env.VUE_APP_CLOUDBASE_ENV,
+        env: config.env,
       });
       this.auth = this.app.auth({
         persistence: 'local',

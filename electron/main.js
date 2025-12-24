@@ -43,19 +43,25 @@ app.on('window-all-closed', () => {
   }
 });
 
-// IPC handlers for Cloudbase operations
+// IPC handlers for potential future Cloudbase operations from main process
+// Currently, Cloudbase operations are handled directly in the renderer process
+// These handlers can be extended if main process needs to perform Cloudbase operations
 ipcMain.handle('cloudbase:init', async (event, config) => {
+  // Future: Initialize Cloudbase in main process if needed
   return { success: true, message: 'Cloudbase initialized' };
 });
 
 ipcMain.handle('cloudbase:login', async (event, credentials) => {
+  // Future: Handle login in main process if needed
   return { success: true, message: 'Login handler ready' };
 });
 
 ipcMain.handle('cloudbase:logout', async () => {
+  // Future: Handle logout in main process if needed
   return { success: true, message: 'Logout handler ready' };
 });
 
 ipcMain.handle('cloudbase:getLoginState', async () => {
+  // Future: Get login state from main process if needed
   return { success: true, isLoggedIn: false };
 });
