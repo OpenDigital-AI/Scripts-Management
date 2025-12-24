@@ -23,16 +23,22 @@
         </button>
       </div>
 
-      <form @submit.prevent="handleLogin" class="login-form">
+      <form @submit.prevent="handleLogin" class="login-form" novalidate>
         <div v-if="loginMode === 'credentials'" class="form-group">
-          <label for="username">Username/Email</label>
+          <label for="username">Username</label>
           <input
             id="username"
             v-model="username"
             type="text"
-            placeholder="Enter username or email"
+            placeholder="Enter username"
+            :class="{ 'input-error': validationErrors.username }"
+            @blur="validateUsernameField"
+            @input="clearValidationError('username')"
             required
           />
+          <div v-if="validationErrors.username" class="field-error">
+            {{ validationErrors.username }}
+          </div>
         </div>
 
         <div v-if="loginMode === 'credentials'" class="form-group">
@@ -41,12 +47,23 @@
             id="password"
             v-model="password"
             type="password"
-            placeholder="Enter password"
+            placeholder="Enter password (min 8 characters)"
+            :class="{ 'input-error': validationErrors.password }"
+            @blur="validatePasswordField"
+            @input="clearValidationError('password')"
             required
           />
+          <div v-if="validationErrors.password" class="field-error">
+            {{ validationErrors.password }}
+          </div>
+          <div v-if="password && !validationErrors.password && passwordStrength" class="password-strength">
+            <span :class="`strength-${passwordStrength}`">
+              Password strength: {{ passwordStrength }}
+            </span>
+          </div>
         </div>
 
-        <button type="submit" class="login-button" :disabled="loading">
+        <button type="submit" class="login-button" :disabled="loading || !canSubmit">
           {{ loading ? 'Logging in...' : loginMode === 'anonymous' ? 'Login Anonymously' : 'Login' }}
         </button>
       </form>
@@ -64,9 +81,15 @@
 </template>
 
 <script>
-import { ref } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import cloudbaseService from '../services/cloudbase';
+import {
+  validateUsername,
+  validatePassword,
+  checkPasswordPatterns,
+  sanitizeInput
+} from '../utils/validation';
 
 export default {
   name: 'Login',
@@ -77,40 +100,135 @@ export default {
     const password = ref('');
     const loading = ref(false);
     const error = ref('');
+    const validationErrors = ref({
+      username: '',
+      password: ''
+    });
+    const passwordStrength = ref('');
 
     // Initialize Cloudbase
-    cloudbaseService.init({
-      env: import.meta.env.VITE_CLOUDBASE_ENV || 'your-env-id',
+    const envId = import.meta.env.VITE_CLOUDBASE_ENV;
+    if (!envId || envId === 'your-env-id') {
+      console.error('Cloudbase environment ID not configured. Please set VITE_CLOUDBASE_ENV in .env file');
+      error.value = 'Application not configured. Please contact administrator.';
+    } else {
+      cloudbaseService.init({ env: envId });
+    }
+
+    // Watch login mode changes to clear validation
+    watch(loginMode, () => {
+      validationErrors.value = { username: '', password: '' };
+      error.value = '';
+      passwordStrength.value = '';
     });
 
+    // Validate username field
+    const validateUsernameField = () => {
+      const sanitized = sanitizeInput(username.value);
+      username.value = sanitized;
+
+      const validation = validateUsername(sanitized);
+      validationErrors.value.username = validation.valid ? '' : validation.error;
+      return validation.valid;
+    };
+
+    // Validate password field
+    const validatePasswordField = () => {
+      const passwordValidation = validatePassword(password.value);
+      const patternCheck = checkPasswordPatterns(password.value, username.value);
+
+      if (!passwordValidation.valid) {
+        validationErrors.value.password = passwordValidation.error;
+        passwordStrength.value = '';
+        return false;
+      }
+
+      if (!patternCheck.valid) {
+        validationErrors.value.password = patternCheck.error;
+        passwordStrength.value = '';
+        return false;
+      }
+
+      validationErrors.value.password = '';
+      passwordStrength.value = passwordValidation.strength;
+      return true;
+    };
+
+    // Clear specific validation error
+    const clearValidationError = (field) => {
+      validationErrors.value[field] = '';
+      if (field === 'password') {
+        passwordStrength.value = '';
+      }
+    };
+
+    // Check if form can be submitted
+    const canSubmit = computed(() => {
+      if (loginMode.value === 'anonymous') {
+        return true;
+      }
+      return username.value.trim().length > 0 && 
+             password.value.length > 0 &&
+             !validationErrors.value.username &&
+             !validationErrors.value.password;
+    });
+
+    // Validate all fields before submission
+    const validateForm = () => {
+      if (loginMode.value === 'anonymous') {
+        return true;
+      }
+
+      const isUsernameValid = validateUsernameField();
+      const isPasswordValid = validatePasswordField();
+
+      return isUsernameValid && isPasswordValid;
+    };
+
     const handleLogin = async () => {
-      loading.value = true;
       error.value = '';
 
-      let result;
-      if (loginMode.value === 'anonymous') {
-        result = await cloudbaseService.loginAnonymously();
-      } else {
-        // Try email login first, fallback to username
-        result = await cloudbaseService.loginWithEmail(
-          username.value,
-          password.value
-        );
-        
-        if (!result.success) {
+      // Validate form
+      if (!validateForm()) {
+        error.value = 'Please fix the validation errors before submitting.';
+        return;
+      }
+
+      loading.value = true;
+
+      try {
+        let result;
+        if (loginMode.value === 'anonymous') {
+          result = await cloudbaseService.loginAnonymously();
+        } else {
+          // Sanitize inputs before sending
+          const sanitizedUsername = sanitizeInput(username.value);
+          
+          // Use username + password login only
           result = await cloudbaseService.loginWithUsernameAndPassword(
-            username.value,
+            sanitizedUsername,
             password.value
           );
         }
-      }
 
-      loading.value = false;
+        loading.value = false;
 
-      if (result.success) {
-        router.push('/home');
-      } else {
-        error.value = result.error || 'Login failed. Please check your credentials.';
+        if (result.success) {
+          // Clear sensitive data
+          password.value = '';
+          username.value = '';
+          router.push('/home');
+        } else {
+          // Generic error message for security - don't reveal specific details
+          error.value = 'Login failed. Please check your credentials and try again.';
+          // Clear password on failed login
+          password.value = '';
+        }
+      } catch (err) {
+        loading.value = false;
+        console.error('Login error:', err);
+        error.value = 'An error occurred during login. Please try again.';
+        password.value = '';
       }
     };
 
@@ -120,7 +238,13 @@ export default {
       password,
       loading,
       error,
+      validationErrors,
+      passwordStrength,
+      canSubmit,
       handleLogin,
+      validateUsernameField,
+      validatePasswordField,
+      clearValidationError,
     };
   },
 };
@@ -225,6 +349,33 @@ h1 {
 .form-group input:focus {
   outline: none;
   border-color: #667eea;
+}
+
+.form-group input.input-error {
+  border-color: #e74c3c;
+}
+
+.field-error {
+  color: #e74c3c;
+  font-size: 12px;
+  margin-top: -4px;
+}
+
+.password-strength {
+  font-size: 12px;
+  margin-top: -4px;
+}
+
+.strength-weak {
+  color: #e74c3c;
+}
+
+.strength-medium {
+  color: #f39c12;
+}
+
+.strength-strong {
+  color: #27ae60;
 }
 
 .login-button {
