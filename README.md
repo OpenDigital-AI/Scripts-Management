@@ -10,6 +10,9 @@ A cross-platform desktop application built with Electron, Vue 3, and Tencent Clo
 - 🎨 **Beautiful UI** - Modern, responsive design
 - 🔒 **Secure IPC** - Context isolation and preload scripts
 - 🚀 **Fast Development** - Vite for instant hot reload
+- ✅ **Input Validation** - Comprehensive security validation
+- 🛡️ **XSS Protection** - Input sanitization and validation
+- 🔑 **Password Strength** - Real-time password strength checking
 
 ## Technology Stack
 
@@ -190,6 +193,20 @@ If hot reload isn't working:
 2. Restart the development server
 3. Clear browser/Electron cache
 
+## Security
+
+This application implements comprehensive security measures:
+
+- **Input Validation** - All user inputs are validated and sanitized
+- **Password Requirements** - Enforced password strength policies
+- **XSS Protection** - HTML/script tag removal from inputs
+- **Generic Error Messages** - No sensitive information leakage
+- **Environment Validation** - Cloudbase configuration validation
+
+For detailed security documentation, see:
+- [SECURITY_VALIDATION.md](SECURITY_VALIDATION.md) - Complete security guide
+- [VALIDATION_GUIDE.md](VALIDATION_GUIDE.md) - Developer quick reference
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -204,6 +221,7 @@ MIT License
 - [Vue 3 Documentation](https://vuejs.org/)
 - [Tencent Cloudbase Documentation](https://cloud.tencent.com/document/product/876)
 - [Vite Documentation](https://vitejs.dev/)
+- [OWASP Input Validation](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html)
 
 ## Support
 

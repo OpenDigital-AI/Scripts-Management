@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "electron:build": "npm run build && electron-builder",
     "postinstall": "electron-builder install-app-deps",
     "verify": "node verify-setup.js"
@@ -21,15 +21,17 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "^4.54.0",
     "@vitejs/plugin-vue": "^5.0.0",
     "concurrently": "^8.2.2",
+    "cross-env": "^10.1.0",
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1",
     "vite": "^5.0.0",
     "wait-on": "^7.2.0"
   },
   "dependencies": {
-    "@cloudbase/js-sdk": "^1.7.3",
+    "@cloudbase/js-sdk": "^2.23.3",
     "vue": "^3.4.0",
     "vue-router": "^4.2.5"
   },
@@ -45,13 +47,19 @@
     ],
     "mac": {
       "category": "public.app-category.utilities",
-      "target": ["dmg"]
+      "target": [
+        "dmg"
+      ]
     },
     "win": {
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "Utility"
     }
   }

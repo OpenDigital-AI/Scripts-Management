@@ -15,7 +15,10 @@ function createWindow() {
   });
 
   // Load the app
-  if (process.env.NODE_ENV === 'development') {
+  // Check if we're in development mode (dev server is running)
+  const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev') || !app.isPackaged;
+  
+  if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
