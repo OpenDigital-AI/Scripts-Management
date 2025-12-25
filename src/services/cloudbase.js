@@ -61,23 +61,6 @@ class CloudbaseService {
     return { success: true };
   }
 
-  // Anonymous login
-  async loginAnonymously() {
-    const initCheck = this.checkInitialized();
-    if (!initCheck.success) {
-      return initCheck;
-    }
-
-    try {
-      // SDK v2+ uses signInAnonymously instead of anonymousAuthProvider
-      await this.auth.signInAnonymously();
-      const loginState = await this.auth.getLoginState();
-      return { success: true, user: loginState };
-    } catch (error) {
-      console.error('Anonymous login error:', error);
-      return { success: false, error: 'Anonymous login failed' };
-    }
-  }
 
   // Email login
   async loginWithEmail(email, password) {

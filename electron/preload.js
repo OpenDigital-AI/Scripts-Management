@@ -19,4 +19,10 @@ contextBridge.exposeInMainWorld('electron', {
   // File system operations
   createFolder: (folderName) => ipcRenderer.invoke('create-folder', folderName),
   downloadFiles: (params) => ipcRenderer.invoke('download-files', params),
+  // Progress subscription for long-running downloads
+  onDownloadProgress: (cb) => {
+    const listener = (event, data) => cb(data);
+    ipcRenderer.on('download-progress', listener);
+    return () => ipcRenderer.removeListener('download-progress', listener);
+  },
 });

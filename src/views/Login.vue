@@ -8,23 +8,8 @@
         {{ error }}
       </div>
 
-      <div class="tabs">
-        <button
-          :class="{ active: loginMode === 'anonymous' }"
-          @click="loginMode = 'anonymous'"
-        >
-          匿名登录
-        </button>
-        <button
-          :class="{ active: loginMode === 'credentials' }"
-          @click="loginMode = 'credentials'"
-        >
-          账号密码
-        </button>
-      </div>
-
       <form @submit.prevent="handleLogin" class="login-form" novalidate>
-        <div v-if="loginMode === 'credentials'" class="form-group">
+        <div class="form-group">
           <label for="username">用户名</label>
           <input
             id="username"
@@ -41,7 +26,7 @@
           </div>
         </div>
 
-        <div v-if="loginMode === 'credentials'" class="form-group">
+        <div class="form-group">
           <label for="password">密码</label>
           <input
             id="password"
@@ -64,7 +49,7 @@
         </div>
 
         <button type="submit" class="login-button" :disabled="loading || !canSubmit">
-          {{ loading ? '登录中...' : loginMode === 'anonymous' ? '匿名登录' : '登录' }}
+          {{ loading ? '登录中...' : '登录' }}
         </button>
       </form>
 
@@ -95,7 +80,7 @@ export default {
   name: 'Login',
   setup() {
     const router = useRouter();
-    const loginMode = ref('anonymous');
+    // credentials-only login (anonymous login removed)
     const username = ref('');
     const password = ref('');
     const loading = ref(false);
@@ -138,11 +123,9 @@ export default {
     // Initialize on mount
     initCloudbase();
 
-    // Watch login mode changes to clear validation
-    watch(loginMode, () => {
-      validationErrors.value = { username: '', password: '' };
-      error.value = '';
-      passwordStrength.value = '';
+    // Clear validation when needed
+    watch([username, password], () => {
+      // keep validation/errors in sync when user types
     });
 
     // Validate username field
@@ -187,9 +170,6 @@ export default {
 
     // Check if form can be submitted
     const canSubmit = computed(() => {
-      if (loginMode.value === 'anonymous') {
-        return true;
-      }
       return username.value.trim().length > 0 && 
              password.value.length > 0 &&
              !validationErrors.value.username &&
@@ -198,10 +178,6 @@ export default {
 
     // Validate all fields before submission
     const validateForm = () => {
-      if (loginMode.value === 'anonymous') {
-        return true;
-      }
-
       const isUsernameValid = validateUsernameField();
       const isPasswordValid = validatePasswordField();
 
@@ -220,19 +196,12 @@ export default {
       loading.value = true;
 
       try {
-        let result;
-        if (loginMode.value === 'anonymous') {
-          result = await cloudbaseService.loginAnonymously();
-        } else {
-          // Sanitize inputs before sending
-          const sanitizedUsername = sanitizeInput(username.value);
-          
-          // Use username + password login only
-          result = await cloudbaseService.loginWithUsernameAndPassword(
-            sanitizedUsername,
-            password.value
-          );
-        }
+        // Sanitize inputs before sending
+        const sanitizedUsername = sanitizeInput(username.value);
+        const result = await cloudbaseService.loginWithUsernameAndPassword(
+          sanitizedUsername,
+          password.value
+        );
 
         loading.value = false;
 
@@ -256,7 +225,6 @@ export default {
     };
 
     return {
-      loginMode,
       username,
       password,
       loading,

@@ -26,9 +26,9 @@ function loadConfig() {
       console.log('Config loaded successfully:', appConfig);
     } else {
       console.warn('config.json not found at:', configPath);
-      // Use default values
+      // Use default values (placeholder - real value should be provided in config.json)
       appConfig = {
-        cloudbaseEnv: 'digital-connect-3g0d1vrha9ea1e5c',
+        cloudbaseEnv: 'your-env-id',
         cloudbaseRegion: 'ap-shanghai'
       };
     }
@@ -36,7 +36,7 @@ function loadConfig() {
     console.error('Error loading config.json:', error);
     // Use default values
     appConfig = {
-      cloudbaseEnv: 'digital-connect-3g0d1vrha9ea1e5c',
+      cloudbaseEnv: 'your-env-id',
       cloudbaseRegion: 'ap-shanghai'
     };
   }
@@ -297,6 +297,12 @@ ipcMain.handle('download-files', async (event, { folderPath, downloadLinks, rawD
     console.log(`Total links to download: ${allLinks.length}`);
     console.log(`Original downloadLinks: ${downloadLinksArray.length}, rawDataLinks: ${rawDataLinksArray.length}`);
     console.log('All links:', allLinks.map(item => item.url));
+    // Notify renderer that downloads are starting
+    try {
+      event.sender.send('download-progress', { type: 'start', total: allLinks.length, message: '开始下载，请稍候...' });
+    } catch (e) {
+      console.warn('Could not send download start event:', e.message);
+    }
     
     // Track filename usage for duplicates
     const filenameCount = new Map();
@@ -306,6 +312,10 @@ ipcMain.handle('download-files', async (event, { folderPath, downloadLinks, rawD
       const { url, source } = allLinks[i];
       
       try {
+        // Inform renderer of which file is starting
+        try {
+          event.sender.send('download-progress', { type: 'file-start', index: i+1, total: allLinks.length, url, message: `正在下载 ${i+1}/${allLinks.length}： ${url}` });
+        } catch (e) {}
         // Extract filename from URL or use index
         const urlParts = url.split('/');
         const urlFilename = urlParts[urlParts.length - 1].split('?')[0];
@@ -327,6 +337,10 @@ ipcMain.handle('download-files', async (event, { folderPath, downloadLinks, rawD
         
         console.log(`Downloading ${url} (from ${source}) to ${destPath}`);
         await downloadFile(url, destPath);
+        // Inform renderer this file finished
+        try {
+          event.sender.send('download-progress', { type: 'file-done', index: i+1, total: allLinks.length, filename, message: `已下载 ${filename}` });
+        } catch (e) {}
         results.downloaded.push(filename);
         
         // Track by source
@@ -339,6 +353,9 @@ ipcMain.handle('download-files', async (event, { folderPath, downloadLinks, rawD
         console.log(`Successfully downloaded: ${filename}`);
       } catch (error) {
         console.error(`Failed to download ${url}:`, error);
+        try {
+          event.sender.send('download-progress', { type: 'file-error', index: i+1, total: allLinks.length, url, message: `下载失败： ${url}` });
+        } catch (e) {}
         const failureInfo = { url, error: error.message };
         results.failed.push(failureInfo);
         
@@ -352,6 +369,9 @@ ipcMain.handle('download-files', async (event, { folderPath, downloadLinks, rawD
     }
     
     console.log(`Download complete. Success: ${results.downloaded.length}, Failed: ${results.failed.length}`);
+    try {
+      event.sender.send('download-progress', { type: 'done', message: `下载完成：成功 ${results.downloaded.length} 个，失败 ${results.failed.length} 个`, results });
+    } catch (e) {}
     return results;
   } catch (error) {
     console.error('Error downloading files:', error);

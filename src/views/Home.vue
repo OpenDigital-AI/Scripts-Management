@@ -56,6 +56,7 @@
                 <div class="resource-name">{{ item.name }}</div>
                 <div class="resource-desc">{{ item.description || '' }}</div>
               </div>
+              
             </a>
           </div>
           
@@ -217,7 +218,7 @@
               <div class="setting-item">
                 <div class="setting-info">
                   <strong>Authentication</strong>
-                  <p>Username + Password, Anonymous Login</p>
+                  <p>Username + Password</p>
                 </div>
               </div>
             </div>
@@ -235,6 +236,7 @@
                 {{ selectedResource.buttonname }}
               </button>
             </div>
+            
             
             <!-- Folder Status -->
             <div v-if="folderMessage" class="status-message status-folder">
@@ -260,7 +262,7 @@
 </template>
 
 <script>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import cloudbaseService from '../services/cloudbase';
 
@@ -279,6 +281,7 @@ export default {
     const statusMessage = ref('');
     const statusType = ref(''); // 'success', 'error', 'info'
     const folderMessage = ref('');
+    // download progress removed — UI progress disabled
     const scriptMessage = ref('');
     const dataMessage = ref('');
     const scriptStatus = ref(''); // 'success', 'error', 'warning', 'info'
@@ -367,7 +370,8 @@ export default {
         console.error('Failed to load resources:', result.error);
         // Show error in UI
         if (result.errorCode === 'COLLECTION_NOT_EXIST') {
-          alert('Collection "resource" does not exist.\n\nPlease go to Cloudbase Console:\n1. Select environment: digital-connect-3g0d1vrha9ea1e5c\n2. Go to Database section\n3. Create a new collection named "resource259"\n4. Add documents with fields: Name, description, icon (optional)');
+          const envLabel = envId || 'Not configured';
+          alert(`Collection "resource" does not exist.\n\nPlease go to Cloudbase Console:\n1. Select environment: ${envLabel}\n2. Go to Database section\n3. Create a new collection named "resource259"\n4. Add documents with fields: Name, description, icon (optional)`);
         }
       }
       loadingResources.value = false;
@@ -375,6 +379,7 @@ export default {
 
     const selectResource = (resource) => {
       selectedResource.value = resource;
+      // selectedResourceId removed
       activeMenu.value = `resource-${resource._id}`;
       // Clear status message when switching resources
       statusMessage.value = '';
@@ -531,13 +536,17 @@ export default {
             }
             
             statusMessage.value = `文件夹：${folderName}\n正在下载文件...`;
-            
+
+            // download progress subscription removed (progress UI disabled)
+
             // Download files to the folder using fresh URLs
             const downloadResult = await window.electron.downloadFiles({
               folderPath: result.path,
               downloadLinks: freshDownloadLinks,
               rawDataLinks: freshRawDataLinks
             });
+
+            // no-op: progress subscription removed
             
             if (downloadResult.success) {
               console.log('Download result:', downloadResult);
@@ -660,6 +669,7 @@ export default {
       statusMessage,
       statusType,
       folderMessage,
+      // download progress removed
       scriptMessage,
       dataMessage,
       scriptStatus,
@@ -1093,31 +1103,7 @@ export default {
   font-weight: 600;
 }
 
-.status-active {
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.status-inactive {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-/* Features List */
-.features-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.feature-item {
-  display: flex;
-  gap: 16px;
-  padding: 16px;
-  background: #f9fafb;
-  border-radius: 8px;
-  transition: all 0.2s;
-}
+.status-progress { display: none; }
 
 .feature-item:hover {
   background: #f3f4f6;
@@ -1393,4 +1379,6 @@ export default {
   color: #1e40af;
   border-left: 4px solid #3b82f6;
 }
+
+.status-progress { display: none; }
 </style>
