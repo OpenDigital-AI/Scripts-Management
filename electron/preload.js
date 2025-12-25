@@ -5,6 +5,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 // Currently, Cloudbase operations are handled directly in the renderer process
 // This can be extended in the future if main process integration is needed
 contextBridge.exposeInMainWorld('electron', {
+  // Get configuration
+  getConfig: () => ipcRenderer.invoke('get-config'),
   // Future IPC methods can be added here
   cloudbase: {
     // These handlers are available but currently unused

@@ -36,8 +36,8 @@
     "vue-router": "^4.2.5"
   },
   "build": {
-    "appId": "com.opendigital.logondemo",
-    "productName": "Logon Demo",
+    "appId": "com.opendigital.scriptmanager",
+    "productName": "脚本集成管理系统",
     "directories": {
       "output": "dist-electron"
     },

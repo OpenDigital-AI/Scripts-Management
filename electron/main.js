@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -6,6 +6,116 @@ const https = require('https');
 const http = require('http');
 
 let mainWindow;
+let appConfig = null;
+
+// Load configuration from config.json
+function loadConfig() {
+  try {
+    // In development, config.json is in the project root
+    // In production, config.json should be next to the .exe
+    const isDev = process.env.NODE_ENV === 'development' || process.argv.includes('--dev') || !app.isPackaged;
+    const configPath = isDev 
+      ? path.join(__dirname, '../config.json')
+      : path.join(path.dirname(app.getPath('exe')), 'config.json');
+    
+    console.log('Loading config from:', configPath);
+    
+    if (fs.existsSync(configPath)) {
+      const configData = fs.readFileSync(configPath, 'utf8');
+      appConfig = JSON.parse(configData);
+      console.log('Config loaded successfully:', appConfig);
+    } else {
+      console.warn('config.json not found at:', configPath);
+      // Use default values
+      appConfig = {
+        cloudbaseEnv: 'digital-connect-3g0d1vrha9ea1e5c',
+        cloudbaseRegion: 'ap-shanghai'
+      };
+    }
+  } catch (error) {
+    console.error('Error loading config.json:', error);
+    // Use default values
+    appConfig = {
+      cloudbaseEnv: 'digital-connect-3g0d1vrha9ea1e5c',
+      cloudbaseRegion: 'ap-shanghai'
+    };
+  }
+}
+
+// IPC handler to get config
+ipcMain.handle('get-config', () => {
+  return appConfig;
+});
+
+function createMenu() {
+  const template = [
+    {
+      label: '文件',
+      submenu: [
+        {
+          label: '退出',
+          accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Alt+F4',
+          click: () => {
+            app.quit();
+          }
+        }
+      ]
+    },
+    {
+      label: '编辑',
+      submenu: [
+        { label: '撤销', accelerator: 'CmdOrCtrl+Z', role: 'undo' },
+        { label: '重做', accelerator: 'Shift+CmdOrCtrl+Z', role: 'redo' },
+        { type: 'separator' },
+        { label: '剪切', accelerator: 'CmdOrCtrl+X', role: 'cut' },
+        { label: '复制', accelerator: 'CmdOrCtrl+C', role: 'copy' },
+        { label: '粘贴', accelerator: 'CmdOrCtrl+V', role: 'paste' },
+        { label: '全选', accelerator: 'CmdOrCtrl+A', role: 'selectAll' }
+      ]
+    },
+    {
+      label: '查看',
+      submenu: [
+        { label: '重新加载', accelerator: 'CmdOrCtrl+R', role: 'reload' },
+        { label: '强制重新加载', accelerator: 'CmdOrCtrl+Shift+R', role: 'forceReload' },
+        { label: '开发者工具', accelerator: 'CmdOrCtrl+Shift+I', role: 'toggleDevTools' },
+        { type: 'separator' },
+        { label: '实际大小', accelerator: 'CmdOrCtrl+0', role: 'resetZoom' },
+        { label: '放大', accelerator: 'CmdOrCtrl+Plus', role: 'zoomIn' },
+        { label: '缩小', accelerator: 'CmdOrCtrl+-', role: 'zoomOut' },
+        { type: 'separator' },
+        { label: '全屏', accelerator: 'F11', role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: '窗口',
+      submenu: [
+        { label: '最小化', accelerator: 'CmdOrCtrl+M', role: 'minimize' },
+        { label: '关闭', accelerator: 'CmdOrCtrl+W', role: 'close' }
+      ]
+    },
+    {
+      label: '帮助',
+      submenu: [
+        {
+          label: '关于',
+          click: () => {
+            const { dialog } = require('electron');
+            dialog.showMessageBox({
+              type: 'info',
+              title: '关于',
+              message: '脚本集成管理系统 v0.1',
+              detail: '基于 Electron + Vue + 腾讯云开发构建'
+            });
+          }
+        }
+      ]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -35,6 +145,8 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  loadConfig();
+  createMenu();
   createWindow();
 
   app.on('activate', () => {

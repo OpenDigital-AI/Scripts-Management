@@ -1,8 +1,8 @@
 <template>
   <div class="login-container">
     <div class="login-box">
-      <h1>Logon Demo</h1>
-      <p class="subtitle">Powered by Tencent Cloudbase</p>
+      <h1>脚本集成管理系统</h1>
+      <p class="subtitle">基于腾讯云开发</p>
 
       <div v-if="error" class="error-message">
         {{ error }}
@@ -13,24 +13,24 @@
           :class="{ active: loginMode === 'anonymous' }"
           @click="loginMode = 'anonymous'"
         >
-          Anonymous
+          匿名登录
         </button>
         <button
           :class="{ active: loginMode === 'credentials' }"
           @click="loginMode = 'credentials'"
         >
-          Credentials
+          账号密码
         </button>
       </div>
 
       <form @submit.prevent="handleLogin" class="login-form" novalidate>
         <div v-if="loginMode === 'credentials'" class="form-group">
-          <label for="username">Username</label>
+          <label for="username">用户名</label>
           <input
             id="username"
             v-model="username"
             type="text"
-            placeholder="Enter username"
+            placeholder="请输入用户名"
             :class="{ 'input-error': validationErrors.username }"
             @blur="validateUsernameField"
             @input="clearValidationError('username')"
@@ -42,12 +42,12 @@
         </div>
 
         <div v-if="loginMode === 'credentials'" class="form-group">
-          <label for="password">Password</label>
+          <label for="password">密码</label>
           <input
             id="password"
             v-model="password"
             type="password"
-            placeholder="Enter password (min 8 characters)"
+            placeholder="请输入密码（至少8个字符）"
             :class="{ 'input-error': validationErrors.password }"
             @blur="validatePasswordField"
             @input="clearValidationError('password')"
@@ -58,22 +58,22 @@
           </div>
           <div v-if="password && !validationErrors.password && passwordStrength" class="password-strength">
             <span :class="`strength-${passwordStrength}`">
-              Password strength: {{ passwordStrength }}
+              密码强度: {{ passwordStrength === 'weak' ? '弱' : passwordStrength === 'medium' ? '中' : '强' }}
             </span>
           </div>
         </div>
 
         <button type="submit" class="login-button" :disabled="loading || !canSubmit">
-          {{ loading ? 'Logging in...' : loginMode === 'anonymous' ? 'Login Anonymously' : 'Login' }}
+          {{ loading ? '登录中...' : loginMode === 'anonymous' ? '匿名登录' : '登录' }}
         </button>
       </form>
 
       <div class="info-section">
         <p class="info-text">
-          <strong>Note:</strong> This is a demo application integrating Electron + Vue + Tencent Cloudbase.
+          <strong> 提示： </strong> 本应用使用腾讯云开发（Cloudbase）作为后端服务平台。
         </p>
         <p class="info-text">
-          Configure your Cloudbase environment in <code>.env</code> file.
+          请联系管理员获取用户登录信息，并妥善保管您的凭据。
         </p>
       </div>
     </div>
@@ -106,14 +106,37 @@ export default {
     });
     const passwordStrength = ref('');
 
-    // Initialize Cloudbase
-    const envId = import.meta.env.VITE_CLOUDBASE_ENV;
-    if (!envId || envId === 'your-env-id') {
-      console.error('Cloudbase environment ID not configured. Please set VITE_CLOUDBASE_ENV in .env file');
-      error.value = 'Application not configured. Please contact administrator.';
-    } else {
-      cloudbaseService.init({ env: envId });
-    }
+    // Initialize Cloudbase with config from electron
+    const initCloudbase = async () => {
+      try {
+        let config;
+        if (window.electron && window.electron.getConfig) {
+          // Running in Electron - get config from main process
+          config = await window.electron.getConfig();
+          console.log('Config from Electron:', config);
+        } else {
+          // Running in browser - use .env
+          const envId = import.meta.env.VITE_CLOUDBASE_ENV;
+          config = { cloudbaseEnv: envId };
+        }
+
+        if (!config.cloudbaseEnv || config.cloudbaseEnv === 'your-env-id') {
+          console.error('Cloudbase environment ID not configured');
+          error.value = '应用程序未配置。请联系管理员。';
+        } else {
+          cloudbaseService.init({ 
+            env: config.cloudbaseEnv,
+            region: config.cloudbaseRegion || 'ap-shanghai'
+          });
+        }
+      } catch (err) {
+        console.error('Error initializing Cloudbase:', err);
+        error.value = '初始化失败。请检查配置文件。';
+      }
+    };
+
+    // Initialize on mount
+    initCloudbase();
 
     // Watch login mode changes to clear validation
     watch(loginMode, () => {
@@ -190,7 +213,7 @@ export default {
 
       // Validate form
       if (!validateForm()) {
-        error.value = 'Please fix the validation errors before submitting.';
+        error.value = '请修正验证错误后再提交。';
         return;
       }
 
@@ -220,14 +243,14 @@ export default {
           router.push('/home');
         } else {
           // Generic error message for security - don't reveal specific details
-          error.value = 'Login failed. Please check your credentials and try again.';
+          error.value = '登录失败。请检查您的凭据后重试。';
           // Clear password on failed login
           password.value = '';
         }
       } catch (err) {
         loading.value = false;
         console.error('Login error:', err);
-        error.value = 'An error occurred during login. Please try again.';
+        error.value = '登录过程中发生错误。请重试。';
         password.value = '';
       }
     };
