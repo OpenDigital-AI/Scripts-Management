@@ -14,4 +14,7 @@ contextBridge.exposeInMainWorld('electron', {
     logout: () => ipcRenderer.invoke('cloudbase:logout'),
     getLoginState: () => ipcRenderer.invoke('cloudbase:getLoginState'),
   },
+  // File system operations
+  createFolder: (folderName) => ipcRenderer.invoke('create-folder', folderName),
+  downloadFiles: (params) => ipcRenderer.invoke('download-files', params),
 });
