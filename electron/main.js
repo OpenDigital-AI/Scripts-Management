@@ -105,7 +105,7 @@ function createMenu() {
               type: 'info',
               title: '关于',
               message: '脚本集成管理系统 v0.1',
-              detail: '基于 Electron + Vue + 腾讯云开发构建'
+              detail: '基于Electron开发构建的跨平台桌面应用程序，提供脚本管理、文件下载和云数据库集成功能。'
             });
           }
         }

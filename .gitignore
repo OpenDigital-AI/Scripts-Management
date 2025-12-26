@@ -7,7 +7,7 @@ node_modules/
 
 # Build outputs
 dist/
-dist-electron/
+dist-electron*/
 
 # IDE
 .vscode/

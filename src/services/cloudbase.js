@@ -1,3 +1,4 @@
+
 import cloudbase from '@cloudbase/js-sdk';
 import { validateEmail, validatePassword, sanitizeInput } from '../utils/validation';
 
@@ -7,44 +8,42 @@ class CloudbaseService {
     this.auth = null;
     this.db = null;
     this.isInitialized = false;
-    this.currentUsername = null; // Store the logged-in username
+    this.currentUsername = null;
+
+    this.sessionTTLMinutes = 60 * 4; // default 4 hours for testing
+    this.SESSION_EXPIRES_AT_KEY = 'app_session_expires_at';
+    this.SESSION_TTL_KEY = 'app_session_ttl_minutes';
+    this._expiryWatchId = null;
   }
 
-  // Initialize Cloudbase
-  init(config) {
+  init(config = {}) {
     try {
-      // Validate environment ID
       if (!config || !config.env || typeof config.env !== 'string') {
         throw new Error('Invalid environment configuration');
       }
 
       const envId = config.env.trim();
-      
       if (envId === 'your-env-id' || envId.length === 0) {
         throw new Error('Environment ID not configured');
       }
 
-      // Basic format validation for environment ID
       if (!/^[a-zA-Z0-9-]+$/.test(envId)) {
         throw new Error('Invalid environment ID format');
       }
 
-      this.app = cloudbase.init({
-        env: envId,
-        region: 'ap-shanghai', // Specify region explicitly
-      });
-      this.auth = this.app.auth({
-        persistence: 'local',
-      });
-      
-      // Initialize database instance
+      this.app = cloudbase.init({ env: envId, region: config.region || 'ap-shanghai' });
+      this.auth = this.app.auth({ persistence: 'local' });
       this.db = this.app.database();
-      
-      // Debug: Log available auth methods
-      console.log('Available auth methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(this.auth)).filter(name => name.includes('sign')));
-      console.log('Database initialized with env:', envId, 'region: ap-shanghai');
-      
+
+      if (typeof config.sessionTTLMinutes === 'number' && config.sessionTTLMinutes > 0) {
+        this.sessionTTLMinutes = config.sessionTTLMinutes;
+      }
+
+      try { localStorage.setItem(this.SESSION_TTL_KEY, String(this.sessionTTLMinutes)); } catch (e) {}
+
       this.isInitialized = true;
+      // start the expiry watcher so the app will auto-logout when TTL is reached
+      try { this._startExpiryWatcher(); } catch (e) {}
       return { success: true };
     } catch (error) {
       console.error('Cloudbase initialization error:', error);
@@ -53,285 +52,162 @@ class CloudbaseService {
     }
   }
 
-  // Check if service is initialized
   checkInitialized() {
-    if (!this.isInitialized || !this.auth) {
-      return { success: false, error: 'Service not initialized' };
-    }
+    if (!this.isInitialized || !this.auth) return { success: false, error: 'Service not initialized' };
     return { success: true };
   }
 
-
-  // Email login
-  async loginWithEmail(email, password) {
-    const initCheck = this.checkInitialized();
-    if (!initCheck.success) {
-      return initCheck;
-    }
-
-    // Validate inputs
-    const sanitizedEmail = sanitizeInput(email);
-    const emailValidation = validateEmail(sanitizedEmail);
-    
-    if (!emailValidation.valid) {
-      return { success: false, error: 'Invalid email format' };
-    }
-
-    const passwordValidation = validatePassword(password);
-    if (!passwordValidation.valid) {
-      return { success: false, error: 'Invalid password' };
-    }
-
+  _setSessionExpiry(ttlMinutes) {
     try {
-      // SDK v2+ uses signInWithEmail directly
-      await this.auth.signInWithEmail(sanitizedEmail, password);
-      const loginState = await this.auth.getLoginState();
-      return { success: true, user: loginState };
-    } catch (error) {
-      console.error('Email login error:', error);
-      return { success: false, error: 'Authentication failed' };
-    }
+      const now = Date.now();
+      const expiresAt = now + (Number(ttlMinutes) || 0) * 60 * 1000;
+      localStorage.setItem(this.SESSION_EXPIRES_AT_KEY, String(expiresAt));
+      // ensure watcher is running so expiry is detected
+      try { this._startExpiryWatcher(); } catch (e) {}
+    } catch (e) { console.warn('Could not persist session expiry:', e); }
   }
 
-  // Username and password login
-  async loginWithUsernameAndPassword(username, password) {
-    const initCheck = this.checkInitialized();
-    if (!initCheck.success) {
-      return initCheck;
-    }
-
-    // Validate inputs
-    const sanitizedUsername = sanitizeInput(username);
-    
-    if (!sanitizedUsername || sanitizedUsername.length < 3) {
-      return { success: false, error: 'Invalid username' };
-    }
-
-    if (sanitizedUsername.length > 50) {
-      return { success: false, error: 'Username too long' };
-    }
-
-    const passwordValidation = validatePassword(password);
-    if (!passwordValidation.valid) {
-      return { success: false, error: 'Invalid password' };
-    }
-
+  // Start periodic watcher to auto-logout when session expires
+  _startExpiryWatcher(intervalSeconds = 15) {
     try {
-      // SDK v2+ uses generic signIn for username+password
-      await this.auth.signIn({
-        username: sanitizedUsername,
-        password: password
-      });
-      
-      // Store the username for later use
-      this.currentUsername = sanitizedUsername;
-      
-      const loginState = await this.auth.getLoginState();
-      return { success: true, user: loginState };
-    } catch (error) {
-      console.error('Login error:', error);
-      return { success: false, error: 'Authentication failed' };
-    }
-  }
-
-  // Get current login state
-  async getLoginState() {
-    const initCheck = this.checkInitialized();
-    if (!initCheck.success) {
-      return initCheck;
-    }
-
-    try {
-      const loginState = await this.auth.getLoginState();
-      console.log('Full login state:', loginState);
-      
-      // Add the stored username to the user object
-      if (loginState && this.currentUsername) {
-        return { 
-          success: true, 
-          isLoggedIn: !!loginState, 
-          user: {
-            ...loginState,
-            username: this.currentUsername,
-            nickname: loginState.nickName || loginState.nickname || this.currentUsername
+      if (this._expiryWatchId) return; // already running
+      this._expiryWatchId = setInterval(async () => {
+        try {
+          // Only act if an expiry timestamp exists
+          const expiresAt = this.getSessionExpiryTimestamp();
+          if (!expiresAt) return; // no active session, skip
+          if (Date.now() >= expiresAt) {
+            await this.logout();
+            try { window.dispatchEvent(new CustomEvent('session-expired')); } catch (e) {}
+            this._stopExpiryWatcher();
           }
-        };
-      }
-      
-      return { success: true, isLoggedIn: !!loginState, user: loginState };
-    } catch (error) {
-      console.error('Get login state error:', error);
-      return { success: false, error: 'Failed to get login state' };
+        } catch (e) {
+          console.warn('Expiry watcher error:', e);
+        }
+      }, (Number(intervalSeconds) || 15) * 1000);
+    } catch (e) {
+      console.warn('Could not start expiry watcher:', e);
     }
   }
 
-  // Logout
-  async logout() {
-    const initCheck = this.checkInitialized();
-    if (!initCheck.success) {
-      return initCheck;
-    }
-
+  _stopExpiryWatcher() {
     try {
-      await this.auth.signOut();
-      this.currentUsername = null; // Clear stored username
-      return { success: true };
-    } catch (error) {
-      console.error('Logout error:', error);
-      return { success: false, error: 'Logout failed' };
-    }
+      if (this._expiryWatchId) {
+        clearInterval(this._expiryWatchId);
+        this._expiryWatchId = null;
+      }
+    } catch (e) { /* ignore */ }
   }
 
-  // Register user (if using email/password)
-  async register(email, password) {
-    const initCheck = this.checkInitialized();
-    if (!initCheck.success) {
-      return initCheck;
-    }
+  _clearSessionExpiry() { try { localStorage.removeItem(this.SESSION_EXPIRES_AT_KEY); } catch (e) {} }
 
-    // Validate inputs
+  isSessionValid() {
+    try {
+      const v = localStorage.getItem(this.SESSION_EXPIRES_AT_KEY);
+      if (!v) return false;
+      const expiresAt = parseInt(v, 10);
+      if (Number.isNaN(expiresAt)) return false;
+      return Date.now() < expiresAt;
+    } catch (e) { return false; }
+  }
+
+  setSessionTTL(minutes) {
+    const m = Number(minutes);
+    if (!Number.isNaN(m) && m > 0) {
+      this.sessionTTLMinutes = m;
+      try { localStorage.setItem(this.SESSION_TTL_KEY, String(m)); } catch (e) {}
+      return true;
+    }
+    return false;
+  }
+
+  getSessionExpiryTimestamp() {
+    try { const v = localStorage.getItem(this.SESSION_EXPIRES_AT_KEY); return v ? parseInt(v, 10) : null; } catch (e) { return null; }
+  }
+
+  async loginWithEmail(email, password) {
+    const initCheck = this.checkInitialized(); if (!initCheck.success) return initCheck;
     const sanitizedEmail = sanitizeInput(email);
     const emailValidation = validateEmail(sanitizedEmail);
-    
-    if (!emailValidation.valid) {
-      return { success: false, error: emailValidation.error };
-    }
-
+    if (!emailValidation.valid) return { success: false, error: 'Invalid email format' };
     const passwordValidation = validatePassword(password);
-    if (!passwordValidation.valid) {
-      return { success: false, error: passwordValidation.error };
-    }
-
+    if (!passwordValidation.valid) return { success: false, error: 'Invalid password' };
     try {
-      // SDK v2+ uses signUp
-      await this.auth.signUp(sanitizedEmail, password);
-      return { success: true };
-    } catch (error) {
-      console.error('Registration error:', error);
-      return { success: false, error: 'Registration failed' };
-    }
-  }
-
-  // Get database instance
-  getDatabase() {
-    if (!this.db) {
-      console.warn('Database instance not initialized');
-      return null;
-    }
-    return this.db;
-  }
-
-  // Get resources from collection
-  async getResources() {
-    console.log('getResources called');
-    const initCheck = this.checkInitialized();
-    console.log('Init check:', initCheck);
-    if (!initCheck.success) {
-      return initCheck;
-    }
-
-    try {
-      console.log('Getting database instance...');
-      const db = this.getDatabase();
-      console.log('Database instance:', db);
-      if (!db) {
-        return { success: false, error: 'Database not initialized' };
-      }
-
-      // Verify user is authenticated before querying
+      await this.auth.signInWithEmail(sanitizedEmail, password);
+      this.currentUsername = sanitizedEmail;
+      this._setSessionExpiry(this.sessionTTLMinutes);
+      try { this._startExpiryWatcher(); } catch (e) {}
       const loginState = await this.auth.getLoginState();
-      console.log('Login state before query:', loginState);
-      
-      if (!loginState) {
-        console.warn('User not authenticated for database query');
-        return { success: false, error: 'Not authenticated', data: [] };
-      }
+      return { success: true, user: loginState };
+    } catch (error) { console.error('Email login error:', error); return { success: false, error: 'Authentication failed' }; }
+  }
 
-      console.log('Querying NoSQL collection: resource259');
-      const collection = db.collection('resource259');
-      console.log('Collection reference:', collection);
-      
-      // Use Cloudbase database command for advanced queries
-      const _ = db.command;
-      
-      console.log('Executing NoSQL query with limit...');
-      // Query NoSQL collection - add limit to prevent large data fetch
-      const res = await collection
-        .limit(100) // Limit results to prevent overwhelming the client
-        .get();
-        
-      console.log('Query result:', res);
-      console.log('Data count:', res.data ? res.data.length : 0);
-      
-      if (res.data && res.data.length > 0) {
-        console.log('Sample document:', res.data[0]);
+  async loginWithUsernameAndPassword(username, password) {
+    const initCheck = this.checkInitialized(); if (!initCheck.success) return initCheck;
+    const sanitizedUsername = sanitizeInput(username);
+    if (!sanitizedUsername || sanitizedUsername.length < 3) return { success: false, error: 'Invalid username' };
+    if (sanitizedUsername.length > 50) return { success: false, error: 'Username too long' };
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) return { success: false, error: 'Invalid password' };
+    try {
+      await this.auth.signIn({ username: sanitizedUsername, password });
+      this.currentUsername = sanitizedUsername;
+      this._setSessionExpiry(this.sessionTTLMinutes);
+      try { this._startExpiryWatcher(); } catch (e) {}
+      const loginState = await this.auth.getLoginState();
+      return { success: true, user: loginState };
+    } catch (error) { console.error('Login error:', error); return { success: false, error: 'Authentication failed' }; }
+  }
+
+  async getLoginState() {
+    const initCheck = this.checkInitialized(); if (!initCheck.success) return initCheck;
+    try {
+      if (!this.isSessionValid()) { try { await this.logout(); } catch (e) {} return { success: true, isLoggedIn: false, user: null }; }
+      const loginState = await this.auth.getLoginState();
+      if (loginState && this.currentUsername) {
+        return { success: true, isLoggedIn: !!loginState, user: { ...loginState, username: this.currentUsername, nickname: loginState.nickName || loginState.nickname || this.currentUsername } };
       }
-      
-      return { 
-        success: true, 
-        data: res.data || []
-      };
+      return { success: true, isLoggedIn: !!loginState, user: loginState };
+    } catch (error) { console.error('Get login state error:', error); return { success: false, error: 'Failed to get login state' }; }
+  }
+
+  async logout() { const initCheck = this.checkInitialized(); if (!initCheck.success) return initCheck; try { await this.auth.signOut(); this.currentUsername = null; this._clearSessionExpiry(); try { this._stopExpiryWatcher(); } catch (e) {} return { success: true }; } catch (error) { console.error('Logout error:', error); return { success: false, error: 'Logout failed' }; } }
+
+  async register(email, password) {
+    const initCheck = this.checkInitialized(); if (!initCheck.success) return initCheck;
+    const sanitizedEmail = sanitizeInput(email);
+    const emailValidation = validateEmail(sanitizedEmail);
+    if (!emailValidation.valid) return { success: false, error: emailValidation.error };
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) return { success: false, error: passwordValidation.error };
+    try { await this.auth.signUp(sanitizedEmail, password); return { success: true }; } catch (error) { console.error('Registration error:', error); return { success: false, error: 'Registration failed' }; }
+  }
+
+  getDatabase() { if (!this.db) { console.warn('Database instance not initialized'); return null; } return this.db; }
+
+  async getResources() {
+    const initCheck = this.checkInitialized(); if (!initCheck.success) return initCheck;
+    try {
+      const db = this.getDatabase(); if (!db) return { success: false, error: 'Database not initialized' };
+      const loginState = await this.auth.getLoginState(); if (!loginState) return { success: false, error: 'Not authenticated', data: [] };
+      const collection = db.collection('resource259');
+      const res = await collection.limit(100).get();
+      return { success: true, data: res.data || [] };
     } catch (error) {
       console.error('Get resources error:', error);
-      console.error('Error details:', error.message, error.code);
-      
-      // Handle collection not exist error
-      if (error.code === 'DATABASE_COLLECTION_NOT_EXIST') {
-        return { 
-          success: false, 
-          error: 'Collection "resource259" does not exist. Please create it in Cloudbase console.', 
-          errorCode: 'COLLECTION_NOT_EXIST',
-          data: [] 
-        };
-      }
-      
-      // Handle specific NoSQL database errors
-      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('permission')) {
-        return { 
-          success: false, 
-          error: 'Database permission denied. Check security rules in Cloudbase console.', 
-          data: [] 
-        };
-      }
-      
-      return { 
-        success: false, 
-        error: `Failed to fetch resources: ${error.message || 'Unknown error'}`, 
-        data: [] 
-      };
+      if (error && error.code === 'DATABASE_COLLECTION_NOT_EXIST') return { success: false, error: 'Collection "resource259" does not exist. Please create it in Cloudbase console.', errorCode: 'COLLECTION_NOT_EXIST', data: [] };
+      if (error && (error.code === 'PERMISSION_DENIED' || (error.message && error.message.includes('permission')))) return { success: false, error: 'Database permission denied. Check security rules in Cloudbase console.', data: [] };
+      return { success: false, error: `Failed to fetch resources: ${error && error.message ? error.message : 'Unknown error'}`, data: [] };
     }
   }
 
-  // Get fresh temporary download URLs for cloud files
   async getTempFileURLs(fileList) {
     try {
-      if (!this.isInitialized || !this.app) {
-        throw new Error('Cloudbase not initialized');
-      }
-
-      if (!fileList || !Array.isArray(fileList) || fileList.length === 0) {
-        return { success: true, fileList: [] };
-      }
-
-      // Use Cloudbase SDK to get temporary download URLs
-      const result = await this.app.getTempFileURL({
-        fileList: fileList
-      });
-
-      console.log('getTempFileURL result:', result);
-
-      return {
-        success: true,
-        fileList: result.fileList || []
-      };
-    } catch (error) {
-      console.error('Get temp file URL error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to get download URLs',
-        fileList: []
-      };
-    }
+      if (!this.isInitialized || !this.app) throw new Error('Cloudbase not initialized');
+      if (!fileList || !Array.isArray(fileList) || fileList.length === 0) return { success: true, fileList: [] };
+      const result = await this.app.getTempFileURL({ fileList });
+      return { success: true, fileList: result.fileList || [] };
+    } catch (error) { console.error('Get temp file URL error:', error); return { success: false, error: error && error.message ? error.message : 'Failed to get download URLs', fileList: [] }; }
   }
 }
 
